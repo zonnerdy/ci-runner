@@ -59,8 +59,11 @@ jobs:
 
       - name: Clone upstream repo
         run: |
-          git clone --depth 1 --branch ${{ github.event.inputs.upstream_ref }} \
-            https://github.com/${{ github.event.inputs.upstream_repo }}.git project
+          git init project
+          cd project
+          git remote add origin https://github.com/${{ github.event.inputs.upstream_repo }}.git
+          git fetch --depth 1 origin ${{ github.event.inputs.upstream_ref }}
+          git checkout FETCH_HEAD
         timeout-minutes: 5
 
       - name: Apply mutation
