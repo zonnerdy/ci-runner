@@ -76,7 +76,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
-          key: pip-${{ github.event.inputs.upstream_repo }}-${{ github.event.inputs.install_cmd }}
+          key: pip-${{ github.event.inputs.upstream_repo }}-${{ hashFiles('.github/workflows/ci.yml') }}
           restore-keys: |
             pip-${{ github.event.inputs.upstream_repo }}-
             pip-
