@@ -21,6 +21,10 @@ on:
         type: string
         default: "pip install transformers[torch,testing] pytest ruff"
 
+permissions:
+  contents: read
+  actions: read
+
 jobs:
   lint-check:
     runs-on: ubuntu-latest
