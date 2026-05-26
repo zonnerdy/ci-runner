@@ -1,0 +1,72 @@
+name: Fault Injection CI
+on:
+  workflow_dispatch:
+    inputs:
+      source_file:
+        description: Source file path (relative to repo root)
+        required: true
+        type: string
+      test_file:
+        description: Test file path (relative to repo root)
+        required: true
+        type: string
+      package_name:
+        description: Python package name for import
+        required: true
+        type: string
+        default: transformers
+      install_cmd:
+        description: Full pip install command
+        required: true
+        type: string
+        default: "pip install transformers[torch,testing] pytest ruff"
+
+jobs:
+  lint-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install ruff
+        run: pip install ruff
+      - name: Ruff check
+        run: ruff check ${{ github.event.inputs.source_file }}
+      - name: Ruff format check
+        run: ruff format --check ${{ github.event.inputs.source_file }}
+
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pip
+            ${{ env.pythonLocation }}/lib/python3.11/site-packages
+          key: pi-${{ github.event.inputs.install_cmd }}
+          restore-keys: |
+            pi-
+
+      - name: Install dependencies
+        run: ${{ github.event.inputs.install_cmd }}
+
+      - name: Overwrite source in installed package
+        run: |
+          PKG_DIR=$(python -c "import ${{ github.event.inputs.package_name }}; import os; print(os.path.dirname(${{ github.event.inputs.package_name }}.__file__))")
+          REL_PATH=$(echo "${{ github.event.inputs.source_file }}" | sed 's|^src/[^/]*/||')
+          TARGET="${PKG_DIR}/${REL_PATH}"
+          echo "Overwriting: ${TARGET}"
+          cp "${{ github.event.inputs.source_file }}" "${TARGET}"
+
+      - name: Run tests
+        run: |
+          python -m pytest ${{ github.event.inputs.test_file }} -x -v --timeout=180 2>&1 | tail -150
