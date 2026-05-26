@@ -3,23 +3,28 @@ on:
   workflow_dispatch:
     inputs:
       source_file:
-        description: Source file path (relative to repo root)
+        description: Source file to check (relative to project root)
         required: true
         type: string
       test_file:
-        description: Test file path (relative to repo root)
+        description: Test file to run (relative to project root)
         required: true
         type: string
-      package_name:
-        description: Python package name for import
+      upstream_repo:
+        description: "Upstream repo to clone (e.g. huggingface/transformers)"
         required: true
         type: string
-        default: transformers
+        default: "huggingface/transformers"
+      upstream_ref:
+        description: "Git ref to checkout (branch/tag/sha)"
+        required: false
+        type: string
+        default: "main"
       install_cmd:
         description: Full pip install command
         required: true
         type: string
-        default: "pip install transformers[torch,testing] pytest ruff"
+        default: "pip install -e .[torch,testing] pytest ruff"
 
 permissions:
   contents: read
@@ -31,13 +36,15 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          sparse-checkout: ${{ github.event.inputs.source_file }}
+
       - name: Install ruff
         run: pip install ruff
+
       - name: Ruff check
         run: ruff check ${{ github.event.inputs.source_file }}
+
       - name: Ruff format check
         run: ruff format --check ${{ github.event.inputs.source_file }}
 
@@ -46,6 +53,21 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        name: Checkout mutated files
+        with:
+          path: mutated
+
+      - name: Clone upstream repo
+        run: |
+          git clone --depth 1 --branch ${{ github.event.inputs.upstream_ref }} \
+            https://github.com/${{ github.event.inputs.upstream_repo }}.git project
+        timeout-minutes: 5
+
+      - name: Apply mutation
+        run: |
+          cp mutated/${{ github.event.inputs.source_file }} project/${{ github.event.inputs.source_file }}
+          echo "Applied mutation to ${{ github.event.inputs.source_file }}"
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -53,24 +75,16 @@ jobs:
       - name: Cache pip packages
         uses: actions/cache@v4
         with:
-          path: |
-            ~/.cache/pip
-            ${{ env.pythonLocation }}/lib/python3.11/site-packages
-          key: pi-${{ github.event.inputs.install_cmd }}
+          path: ~/.cache/pip
+          key: pip-${{ github.event.inputs.upstream_repo }}-${{ github.event.inputs.install_cmd }}
           restore-keys: |
-            pi-
+            pip-${{ github.event.inputs.upstream_repo }}-
+            pip-
 
       - name: Install dependencies
+        working-directory: project
         run: ${{ github.event.inputs.install_cmd }}
 
-      - name: Overwrite source in installed package
-        run: |
-          PKG_DIR=$(python -c "import ${{ github.event.inputs.package_name }}; import os; print(os.path.dirname(${{ github.event.inputs.package_name }}.__file__))")
-          REL_PATH=$(echo "${{ github.event.inputs.source_file }}" | sed 's|^src/[^/]*/||')
-          TARGET="${PKG_DIR}/${REL_PATH}"
-          echo "Overwriting: ${TARGET}"
-          cp "${{ github.event.inputs.source_file }}" "${TARGET}"
-
       - name: Run tests
-        run: |
-          python -m pytest ${{ github.event.inputs.test_file }} -x -v --timeout=180 2>&1 | tail -150
+        working-directory: project
+        run: python -m pytest ${{ github.event.inputs.test_file }} -x -v --timeout=180 2>&1 | tail -200
